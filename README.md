@@ -101,6 +101,7 @@ eas build --platform ios
 
 | Doc | Purpose |
 |-----|---------|
+| [`docs/build-and-run-personal.md`](docs/build-and-run-personal.md) | **Run on your personal iPhone and Android device (start here)** |
 | [`docs/research/README.md`](docs/research/README.md) | Why mobile, target users, feature decisions |
 | [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) | Project structure, navigation, state management |
 | [`docs/features/cashier-features.md`](docs/features/cashier-features.md) | Full feature spec for each screen |
