@@ -17,6 +17,8 @@ import { useProducts } from '@/hooks/useProducts'
 import { useCartStore } from '@/store/cart.store'
 import { useAuthStore } from '@/store/auth.store'
 import { useUIStore } from '@/store/ui.store'
+import { useSettingsStore } from '@/store/settings.store'
+import { notificationsService } from '@/services/notifications.service'
 import ProductCard from '@/components/ProductCard'
 import CartBadge from '@/components/CartBadge'
 import UnitPickerSheet from '@/components/UnitPickerSheet'
@@ -32,9 +34,12 @@ const CATEGORIES = [
 ]
 
 export default function PosScreen() {
-  const user            = useAuthStore((s) => s.user)
-  const addItem         = useCartStore((s) => s.addItem)
-  const pushToast       = useUIStore((s) => s.pushToast)
+  const user                 = useAuthStore((s) => s.user)
+  const addItem              = useCartStore((s) => s.addItem)
+  const holdCart             = useCartStore((s) => s.holdCart)
+  const items                = useCartStore((s) => s.items)
+  const pushToast            = useUIStore((s) => s.pushToast)
+  const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
 
   const {
     products,
@@ -50,6 +55,19 @@ export default function PosScreen() {
 
   const [selectedProduct, setSelectedProduct] = useState<CartProduct | null>(null)
   const [checkoutVisible, setCheckoutVisible] = useState(false)
+
+  function handleHoldCart() {
+    if (items.length === 0) {
+      pushToast('Cart is empty', 'error', 1500)
+      return
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    const held = holdCart()
+    pushToast('Cart held', 'success', 1500)
+    if (notificationsEnabled) {
+      void notificationsService.scheduleHeldCartReminder(held.label ?? '', held.holdId)
+    }
+  }
 
   const handleProductSelect = useCallback((product: CartProduct) => {
     const activeUnits = product.sellingUnits?.filter((u) => u.isActive) ?? []
@@ -86,9 +104,21 @@ export default function PosScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.storeName}>POS Choice</Text>
-          <Text style={styles.cashierName}>
-            {user?.firstName ?? 'Cashier'}
-          </Text>
+          <View style={styles.headerRight}>
+            {items.length > 0 && (
+              <TouchableOpacity
+                onPress={handleHoldCart}
+                style={styles.holdBtn}
+                activeOpacity={0.75}
+                accessibilityLabel="Hold current cart"
+              >
+                <Text style={styles.holdBtnText}>📌 Hold</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={styles.cashierName}>
+              {user?.firstName ?? 'Cashier'}
+            </Text>
+          </View>
         </View>
 
         {/* Search bar */}
@@ -212,6 +242,24 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  holdBtn: {
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  holdBtnText: {
+    color: '#f59e0b',
+    fontSize: 12,
+    fontWeight: '600',
   },
   cashierName: {
     color: '#94a3b8',

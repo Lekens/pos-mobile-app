@@ -1,181 +1,184 @@
-# POS-Choice Mobile — Push Notifications (Future Feature)
+# POS-Choice Mobile — Push Notifications
 
-## Overview
-
-Push notifications alert cashiers and managers to important events even when the app is closed. This is a Phase M5 feature — not in the initial launch.
-
----
-
-## Use Cases
-
-| Notification | Recipient | Trigger |
-|-------------|---------|--------|
-| Low stock alert | Admin (mobile or web) | Product qty drops to or below `reorderLevel` |
-| New held transaction | Same-store cashiers | Cashier puts cart on hold from a different device |
-| Shift reminders | Cashier | 30 minutes before shift start |
-| New credit customer | Cashier | Customer added with credit limit by admin |
-| Daily summary | Admin | 11 PM each day — total revenue, transaction count |
+> **Status: ✅ IMPLEMENTED (local notifications)** — 2026-06-14 (MOB-BL-02, MOB-BL-03)
+>
+> This document was originally a future-feature spec. It has been updated to reflect what was actually built.
+> **Remote push notifications** (server → device) remain a future enhancement.
 
 ---
 
-## Payload Format
+## What Was Built vs Original Spec
 
-```json
-{
-  "title":    "Low Stock Alert",
-  "body":     "Indomie Chicken 70g — only 3 units left",
-  "data": {
-    "type":      "LOW_STOCK",
-    "productId": "64f3a...",
-    "storeId":   "64f1e..."
-  },
-  "sound": "default",
-  "badge":  1
-}
-```
-
-### Notification Types
-
-| `data.type` | Action on tap |
-|-------------|--------------|
-| `LOW_STOCK` | Open product detail page |
-| `HELD_TRANSACTION` | Open held transactions list |
-| `SHIFT_REMINDER` | Open shift open screen |
-| `DAILY_SUMMARY` | Open dashboard summary |
-| `NEW_CREDIT_CUSTOMER` | Open customer detail |
+| Feature | Original spec | What was built |
+|---------|--------------|----------------|
+| Held cart reminder | Remote push (server-initiated) | ✅ **Local notification** — scheduled 30 min after holding, device-only |
+| Low stock alert | Remote push | ✅ **Local notification** — fired immediately when stock is low |
+| Sync complete | Not in spec | ✅ **Local notification** — fires when offline queue sync completes |
+| Daily summary | Remote push | ⏳ Not implemented — requires backend cron + push token registration |
+| Shift reminder | Remote push | ⏳ Not implemented |
+| New credit customer | Remote push | ⏳ Not implemented |
+| Expo push token registration | `POST /users/push-token` | ⏳ Not implemented — `PATCH /users/:id` in Phase 5 |
+| FCM / APNs credentials | EAS Credentials | ⏳ Not configured — needed for remote push |
 
 ---
 
-## Technical Setup
+## What Was Built — Local Notifications
 
-### Push Service: Expo Push Notifications
+Local notifications are **scheduled on-device** — they don't require a server, an Expo push token, or FCM/APNs credentials. They work in any EAS build.
 
-Use **Expo Push Notifications** service — free, handles both FCM (Android) and APNs (iOS) in one API.
+### Files
 
-#### Frontend — Register Token
+| File | Role |
+|------|------|
+| `src/services/notifications.service.ts` | All notification logic; wraps `expo-notifications` |
+| `src/store/settings.store.ts` | `notificationsEnabled: boolean` persisted to AsyncStorage |
+| `app/_layout.tsx` | Calls `requestPermission()` when `notificationsEnabled` is true |
+| `app/(cashier)/settings.tsx` | NOTIFICATIONS toggle — requests OS permission on first enable |
+| `app/(cashier)/pos.tsx` | Calls `scheduleHeldCartReminder()` when a cart is held |
 
-```ts
-import * as Notifications from 'expo-notifications'
-import * as Device from 'expo-device'
-import Constants from 'expo-constants'
+### notifications.service.ts API
 
-async function registerForPushNotifications(): Promise<string | null> {
-  if (!Device.isDevice) return null  // simulators don't support push
+```typescript
+// Request OS permission (required before any notification)
+notificationsService.requestPermission(): Promise<boolean>
 
-  const { status: existing } = await Notifications.getPermissionsAsync()
-  const { status } = existing === 'granted'
-    ? { status: existing }
-    : await Notifications.requestPermissionsAsync()
+// Schedule a 30-minute reminder for a held cart
+notificationsService.scheduleHeldCartReminder(label: string, holdId: string): Promise<void>
 
-  if (status !== 'granted') return null
+// Cancel the reminder when the cart is resumed or deleted
+notificationsService.cancelHeldCartReminder(holdId: string): Promise<void>
 
-  const token = await Notifications.getExpoPushTokenAsync({
-    projectId: Constants.expoConfig?.extra?.eas?.projectId,
-  })
-  return token.data  // looks like: ExponentPushToken[xxxx...]
-}
+// Immediate alert when a product hits low stock
+notificationsService.sendLowStockAlert(productName: string, qty: number): Promise<void>
+
+// Immediate alert after offline queue finishes syncing
+notificationsService.sendSyncCompleteAlert(count: number): Promise<void>
 ```
 
-#### Backend — Store Token
+### Held Cart Reminder — How It Works
 
-`POST /users/push-token` (new endpoint in Phase M5)
-
-```json
-{ "pushToken": "ExponentPushToken[xxxx...]" }
+```
+Cashier holds a cart
+  → pos.tsx calls notificationsService.scheduleHeldCartReminder(label, holdId)
+  → expo-notifications schedules a TIME_INTERVAL trigger (30 × 60 seconds)
+  → If the cashier resumes or deletes the cart:
+      → cancelHeldCartReminder(holdId) cancels the scheduled notification
+  → If 30 minutes pass and cart is still held:
+      → Notification fires: "📌 Held Cart Reminder — You have a held cart 'Morning sales' waiting"
 ```
 
-Store on the `User` document: `pushToken: String`.
+### Notification Handler (set at module load)
 
-#### Backend — Send Notification
-
-```ts
-import axios from 'axios'
-
-async function sendPushNotification(pushToken: string, payload: PushPayload) {
-  await axios.post('https://exp.host/--/api/v2/push/send', {
-    to:    pushToken,
-    title: payload.title,
-    body:  payload.body,
-    data:  payload.data,
-    sound: 'default',
-  }, {
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-```
-
----
-
-## Deep Linking on Tap
-
-When a notification is tapped, the app should navigate to the relevant screen.
-
-```ts
-// In root layout — listen for notification taps
-import * as Notifications from 'expo-notifications'
-import { useRouter } from 'expo-router'
-
+```typescript
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false,
     shouldSetBadge:  true,
   }),
 })
+```
 
-// In root _layout.tsx
-useEffect(() => {
-  const subscription = Notifications.addNotificationResponseReceivedListener(response => {
-    const { type, productId } = response.notification.request.content.data as any
-    if (type === 'LOW_STOCK')       router.push(`/products/${productId}`)
-    if (type === 'HELD_TRANSACTION') router.push('/held')
-    if (type === 'SHIFT_REMINDER')   router.push('/shift-open')
-  })
-  return () => subscription.remove()
-}, [])
+Configured in `notifications.service.ts` at module level — no setup required in `_layout.tsx`.
+
+---
+
+## Settings Toggle
+
+Located in `app/(cashier)/settings.tsx` → **NOTIFICATIONS** section:
+
+```
+NOTIFICATIONS
+┌────────────────────────────────────────────────────────┐
+│ Notifications    Held cart reminders, low stock   [ ●] │
+└────────────────────────────────────────────────────────┘
+```
+
+- First enable → `notificationsService.requestPermission()` → OS dialog
+- Permission denied → toast: "Permission denied — enable in device Settings"
+- Toggling off → `setNotificationsEnabled(false)`; existing scheduled notifications remain until cancelled/fired
+
+---
+
+## Permissions
+
+Already configured in `app.json`:
+
+**iOS**: Handled automatically by `expo-notifications` plugin.
+
+**Android**: `RECEIVE_BOOT_COMPLETED` and `VIBRATE` in `android.permissions`.
+`expo-notifications` plugin configured with icon and colour:
+```json
+["expo-notifications", { "icon": "./assets/icon.png", "color": "#6366f1", "sounds": [] }]
 ```
 
 ---
 
-## FCM / APNs Setup
+## Notification Tap Handling (Future)
 
-Expo handles certificate management automatically when using EAS Build. No manual APNs `.p8` file needed.
+When a notification is tapped while the app is open or in background, navigation to
+the relevant screen is a future enhancement. The infrastructure is in place:
 
-**Required for production:**
-- Android: Firebase project + `google-services.json` added to EAS credentials
-- iOS: Apple Push Notification certificate managed by EAS (automatic)
+```typescript
+// To implement in _layout.tsx when deep linking is needed:
+const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+  const data = response.notification.request.content.data as { type?: string; holdId?: string }
+  if (data.type === 'held_cart') router.push('/(cashier)/held')
+  if (data.type === 'low_stock') router.push('/(cashier)/pos')
+  if (data.type === 'sync_complete') { /* already on POS, no navigation needed */ }
+})
+```
+
+---
+
+## Remote Push Notifications (Future Work)
+
+The remaining use cases from the original spec require the following backend and
+infrastructure work before they can be implemented:
+
+### Required backend changes
+
+1. **`PATCH /users/:id`** — accept and store `pushToken: string` on User document
+2. **`POST /notifications/send`** (internal) — call Expo Push API
+3. **Low stock cron** — after each transaction, check if stock crossed reorder level; if yes, send push to store admin
+4. **Daily summary cron** — `@Cron('0 23 * * *')` — aggregate today's transactions; push to admin
+
+### Required infrastructure
 
 ```bash
-# Register FCM credentials with EAS
+# 1. Link the Expo project (gets projectId for push token)
+npx eas project:init
+
+# 2. Register FCM credentials with EAS
 eas credentials --platform android
-# Follow prompts to enter Firebase project details
+# Follow prompts with Firebase project credentials
+
+# 3. EAS handles APNs automatically for iOS
 ```
+
+### Frontend addition needed
+
+```typescript
+// Register push token after login and send to backend
+const token = await Notifications.getExpoPushTokenAsync({
+  projectId: Constants.expoConfig?.extra?.eas?.projectId,
+})
+await usersService.updatePushToken(token.data)
+```
+
+### Privacy (NDPR)
+
+- Notification bodies must not expose sensitive customer data on the lock screen.
+- Use vague text: `"You have a new held transaction"` — never customer names or amounts.
+- `notificationsEnabled` flag on the User document must be respected server-side before sending.
 
 ---
 
-## Notification Channels (Android)
+## Known Limitations (v1)
 
-```ts
-// Create channels on app startup (Android 8+)
-Notifications.setNotificationChannelAsync('pos-alerts', {
-  name:       'POS Alerts',
-  importance: Notifications.AndroidImportance.HIGH,
-  vibrationPattern: [0, 250, 250, 250],
-  sound:      'default',
-})
-
-Notifications.setNotificationChannelAsync('pos-reminders', {
-  name:       'Shift Reminders',
-  importance: Notifications.AndroidImportance.DEFAULT,
-})
-```
-
----
-
-## Privacy Considerations (NDPR)
-
-- Notifications must not include sensitive customer data in the payload visible on the lock screen.
-- ❌ Don't put customer name or amount in the notification body.
-- ✅ Use vague text: "You have a new held transaction" (not "Chioma's ₦12,400 cart is on hold").
-- Users must be able to opt out via app settings → "Push Notifications" toggle.
-- Store `pushNotificationsEnabled: boolean` on the User document. Set to `false` on opt-out and skip sending.
+| Limitation | Future fix |
+|------------|-----------|
+| Local only — app must be open or in background to receive | Implement remote push with Expo Push API |
+| No navigation on notification tap | Add `addNotificationResponseReceivedListener` handler |
+| Permission not re-requested after denial | Guide user to device Settings |
+| No notification for new credit customer, daily summary, shift reminder | Implement with backend cron after push token registration |

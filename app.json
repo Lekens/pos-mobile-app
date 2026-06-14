@@ -17,14 +17,35 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "ng.poschoice.app"
+      "bundleIdentifier": "ng.poschoice.app",
+      "infoPlist": {
+        "NSBluetoothPeripheralUsageDescription": "POS-Choice uses Bluetooth to connect to receipt printers.",
+        "NSBluetoothAlwaysUsageDescription": "POS-Choice uses Bluetooth to connect to receipt printers.",
+        "NSCameraUsageDescription": "POS-Choice uses the camera to photograph damaged goods for reports.",
+        "NSPhotoLibraryUsageDescription": "POS-Choice accesses your photo library to attach images to damage reports.",
+        "NSFaceIDUsageDescription": "POS-Choice uses Face ID for faster cashier sign-in."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#020617"
       },
-      "package": "ng.poschoice.app"
+      "package": "ng.poschoice.app",
+      "permissions": [
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACCESS_FINE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -33,8 +54,26 @@
     "plugins": [
       "expo-router",
       "expo-camera",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/netinfo",
+      "expo-local-authentication",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6366f1",
+          "sounds": []
+        }
+      ],
+      "expo-image-picker"
     ],
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/REPLACE_WITH_YOUR_EAS_PROJECT_ID"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "experiments": {
       "typedRoutes": true
     }

@@ -46,4 +46,12 @@ export const API_PATHS = {
   CATEGORIES: {
     LIST: '/categories',
   },
+
+  INVENTORY: {
+    ADJUSTMENTS: '/inventory/adjustments',
+  },
+
+  REPORTS: {
+    CASHIER_ME: '/reports/cashier-performance/me',
+  },
 } as const

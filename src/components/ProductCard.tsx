@@ -8,7 +8,7 @@ interface ProductCardProps {
   onSelect: (product: CartProduct) => void
 }
 
-export default function ProductCard({ product, onSelect }: ProductCardProps) {
+function ProductCard({ product, onSelect }: ProductCardProps) {
   const inStock = product.quantityInStock > 0
   const activeUnits = product.sellingUnits?.filter((u) => u.isActive) ?? []
   const hasMultipleUnits = activeUnits.length > 1
@@ -116,3 +116,5 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 })
+
+export default React.memo(ProductCard)

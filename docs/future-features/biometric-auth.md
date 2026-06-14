@@ -1,152 +1,134 @@
-# POS-Choice Mobile — Biometric Authentication (Future Feature)
+# POS-Choice Mobile — Biometric Authentication
 
-## Overview
-
-Biometric authentication lets cashiers authenticate with fingerprint or Face ID instead of entering their 4-digit PIN each time they unlock the app (auto-lock after 15 minutes of inactivity).
-
-This is a **Phase M5 feature** — not in the initial launch. Initial launch uses PIN-only.
+> **Status: ✅ IMPLEMENTED** — 2026-06-14 (MOB-BL-01)
+>
+> This document was originally a future-feature spec. It has been updated to reflect what was actually built.
 
 ---
 
-## Use Case
+## What Was Built
 
-**Auto-lock unlock only.** Biometrics replaces PIN on the re-authentication screen that appears after 15 minutes of inactivity. The initial shift login still requires PIN (to ensure the correct cashier is active).
+Biometric authentication (Face ID / Touch ID / Fingerprint) is fully implemented.
+Cashiers can enable it after their first successful PIN login, and the app will prompt
+for biometrics on every subsequent cold start — replacing the PIN for fast re-authentication.
 
-```
-Scenario:
-  1. Esther logs in with PIN → opens shift
-  2. Esther stops using the app for 15 minutes
-  3. Screen goes to "Locked — tap to unlock"
-  4. [Touch fingerprint sensor] OR [Scan face]
-  5. App unlocks without PIN re-entry
-```
+### Files
 
----
-
-## Library Choice
-
-Use **`expo-local-authentication`** (part of Expo SDK, MIT):
-
-```bash
-npx expo install expo-local-authentication
-```
-
-**Why not alternatives:**
-- `react-native-biometrics`: Extra dependency, not needed when Expo SDK has it
-- `react-native-fingerprint-scanner`: Archived, not maintained
+| File | Role |
+|------|------|
+| `src/services/biometric.service.ts` | Core wrapper around `expo-local-authentication` |
+| `src/store/settings.store.ts` | Persists `biometricEnabled: boolean` to AsyncStorage |
+| `app/(auth)/login.tsx` | Enrolment prompt + biometric login button |
+| `app/_layout.tsx` | Bootstrap gate — biometric check before session restore |
+| `app/(cashier)/settings.tsx` | SECURITY section toggle |
 
 ---
 
-## Integration Point
+## Implementation vs Original Spec
 
-### Check Availability
-
-```ts
-import * as LocalAuthentication from 'expo-local-authentication'
-
-async function checkBiometricSupport(): Promise<BiometricInfo> {
-  const compatible = await LocalAuthentication.hasHardwareAsync()
-  const enrolled   = await LocalAuthentication.isEnrolledAsync()
-  const types      = await LocalAuthentication.supportedAuthenticationTypesAsync()
-
-  return {
-    available: compatible && enrolled,
-    types,  // e.g. [FINGERPRINT, FACIAL_RECOGNITION, IRIS]
-  }
-}
-```
-
-### Authenticate
-
-```ts
-async function authenticateWithBiometric(): Promise<boolean> {
-  const result = await LocalAuthentication.authenticateAsync({
-    promptMessage:     'Unlock POS-Choice',
-    cancelLabel:       'Use PIN instead',
-    fallbackLabel:     'Use PIN',
-    disableDeviceFallback: false,  // allow device PIN as fallback
-  })
-  return result.success
-}
-```
-
-### Lock Screen Flow
-
-```ts
-// In auto-lock screen component
-async function handleUnlock() {
-  const biometricEnabled = await getBiometricSetting()  // from AsyncStorage
-
-  if (biometricEnabled) {
-    const ok = await authenticateWithBiometric()
-    if (ok) { unlockApp(); return }
-    // If biometric fails, fall through to PIN
-  }
-
-  setShowPinEntry(true)  // show PIN pad
-}
-```
+| Aspect | Original spec | What was built |
+|--------|--------------|----------------|
+| Trigger | Auto-lock re-entry only | **Cold start** — if `biometricEnabled && valid JWT`, biometric fires before session restore |
+| Enrolment | PIN confirmation → biometric test | **Alert after first successful PIN login** — non-blocking, "Enable Face ID?" dialog |
+| Storage key | `biometric_enabled_<cashierId>` per-cashier | Single `biometricEnabled` flag in Zustand `settings.store.ts` (AsyncStorage `pos-settings`) |
+| Settings entry | Settings → Security | ✅ Added SECURITY section to `app/(cashier)/settings.tsx` |
+| Fallback | 3 failed attempts → PIN | **OS handles fallback automatically** — `disableDeviceFallback: false` allows device PIN |
 
 ---
 
-## Settings Screen
+## How It Works
 
-Under "Settings → Security":
+### Cold Start Flow
+
+```
+App opens
+  → bootstrap reads SecureStore token
+  → JWT still valid?
+    YES → biometricEnabled?
+      YES → biometricService.authenticate('Sign in to POS Choice')
+        SUCCESS → restore session → navigate to POS
+        FAIL    → deleteItemAsync(TOKEN_KEY) → navigate to /login (PIN required)
+      NO  → restore session → navigate to POS
+    NO  → navigate to /login
+```
+
+### Enrolment Flow (first time)
+
+```
+Cashier enters correct PIN
+  → session created
+  → biometricService.isAvailable() → true?
+    YES & biometricEnabled === false
+      → Alert: "Enable Face ID?"
+        [Enable] → setBiometricEnabled(true)
+        [Not now] → skip
+  → normal post-login navigation
+```
+
+### Login Screen Biometric Button
+
+Shown only when `biometricEnabled && biometricAvailable`:
 
 ```
 ┌──────────────────────────────────────┐
-│  Security Settings                   │
-│  ────────────────────────────────   │
-│  Auto-lock after      [15 minutes ▾] │
+│        [PIN numpad]                  │
 │                                      │
-│  Unlock with           [PIN only  ▾] │
-│  Fingerprint / Face ID               │
-│                                      │
-│  [Set up biometric unlock]           │
-│  (shows if biometric available       │
-│   but not yet configured)            │
+│  ┌──────────────────────────────┐    │
+│  │   🔐  Use Face ID            │    │
+│  └──────────────────────────────┘    │
 └──────────────────────────────────────┘
 ```
 
-Biometric setting stored in AsyncStorage per-cashier: `biometric_enabled_<cashierId>: 'true' | 'false'`
-
-### Setup Flow
-
-1. User taps "Set up biometric unlock"
-2. PIN confirmation screen: "Enter your PIN to enable biometrics"
-3. PIN correct → `LocalAuthentication.authenticateAsync()` to verify biometric works
-4. Success → store `biometric_enabled_<cashierId> = true`
+Tapping the button calls `biometricService.authenticate()`. On success, checks active shift and navigates accordingly.
 
 ---
 
-## Fallback Strategy
+## biometric.service.ts API
 
-| Scenario | Fallback |
-|---------|---------|
-| Biometric fails (dirty sensor, angle) | Show PIN pad |
-| Biometric cancelled by user | Show PIN pad |
-| 3 failed biometric attempts | Force PIN (device OS handles this automatically) |
-| New cashier on same device | Show PIN (biometric is per-cashier, not per-device) |
-| Device has no biometric hardware | Always use PIN; no biometric option in settings |
-| Biometric not enrolled | Show "Set up fingerprint in device settings" |
+```typescript
+biometricService.isAvailable(): Promise<boolean>
+// Returns true only if hardware present AND enrolled.
 
----
+biometricService.authenticate(promptMessage?: string): Promise<{ success: boolean; error?: string }>
+// Shows OS biometric prompt. Falls back to device PIN/passcode automatically.
 
-## Permissions (app.json)
-
-iOS:
-```json
-"infoPlist": {
-  "NSFaceIDUsageDescription": "Use Face ID to unlock POS-Choice after inactivity"
-}
+biometricService.getSupportedTypes(): Promise<string>
+// Returns 'Face ID' on iPhone X+, 'Fingerprint' on Android/older iOS.
 ```
 
-Android: No explicit permission needed for fingerprint — handled by OS biometric prompt.
+---
+
+## Permissions
+
+Already configured in `app.json`:
+
+**iOS** `infoPlist`:
+```json
+"NSFaceIDUsageDescription": "POS-Choice uses Face ID for faster cashier sign-in."
+```
+
+**Android**: No explicit permission needed — OS biometric prompt handles it.
 
 ---
 
 ## NDPR Note
 
-Biometric data is processed **on-device only** by the OS. POS-Choice never sees, stores, or transmits biometric data. Only the `boolean` result (`success: true/false`) is used by the app.
+Biometric data is processed **on-device only** by the OS.
+POS-Choice never sees, stores, or transmits biometric data.
+Only the `boolean` result (`success: true/false`) is used.
+NDPR consent is not required for this feature.
 
-This means NDPR consent is not required for biometric unlock — the data never leaves the device.
+---
+
+## Settings Toggle
+
+Located in `app/(cashier)/settings.tsx` → **SECURITY** section:
+
+```
+SECURITY
+┌───────────────────────────────────────────────┐
+│ Face ID / Fingerprint    Faster sign-in   [ ●] │
+└───────────────────────────────────────────────┘
+```
+
+Toggling off disables biometric; next cold start will show PIN screen.

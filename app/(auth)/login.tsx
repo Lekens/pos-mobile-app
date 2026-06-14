@@ -5,9 +5,12 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Alert,
+  TouchableOpacity,
 } from 'react-native'
 import { router } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import * as Haptics from 'expo-haptics'
 import PinPad from '@/components/PinPad'
 import { authService } from '@/services/auth.service'
 import { setAuthToken } from '@/lib/axios'
@@ -15,17 +18,36 @@ import { useAuthStore } from '@/store/auth.store'
 import { useUIStore } from '@/store/ui.store'
 import { COMPANY_ID } from '@/constants/config'
 import { shiftsService } from '@/services/shifts.service'
+import { biometricService } from '@/services/biometric.service'
+import { useSettingsStore } from '@/store/settings.store'
 import type { CompanyConfig } from '@/types'
 
 export default function LoginScreen() {
   const setSession  = useAuthStore((s) => s.setSession)
   const pushToast   = useUIStore((s) => s.pushToast)
 
+  const biometricEnabled    = useSettingsStore((s) => s.biometricEnabled)
+  const setBiometricEnabled = useSettingsStore((s) => s.setBiometricEnabled)
+  const [biometricAvailable, setBiometricAvailable] = useState(false)
+  const [biometricLabel, setBiometricLabel]         = useState('Face ID / Touch ID')
+
   const [company, setCompany]         = useState<CompanyConfig | null>(null)
   const [loadingCompany, setLoadingCompany] = useState(true)
   const [loginLoading, setLoginLoading]     = useState(false)
   const [error, setError]                   = useState<string | undefined>()
   const [lockoutSeconds, setLockoutSeconds] = useState(0)
+
+  useEffect(() => {
+    async function checkBio() {
+      const available = await biometricService.isAvailable()
+      setBiometricAvailable(available)
+      if (available) {
+        const label = await biometricService.getSupportedTypes()
+        setBiometricLabel(label)
+      }
+    }
+    void checkBio()
+  }, [])
 
   useEffect(() => {
     async function fetchCompany() {
@@ -54,6 +76,23 @@ export default function LoginScreen() {
     return () => clearInterval(timer)
   }, [lockoutSeconds])
 
+  async function handleBiometricLogin() {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    const result = await biometricService.authenticate('Sign in to POS Choice')
+    if (!result.success) {
+      pushToast('Biometric not recognised. Use your PIN.', 'error')
+      return
+    }
+    try {
+      const shiftRes = await shiftsService.getActive()
+      const shift    = shiftRes.data?.data
+      if (shift?.id) router.replace('/(cashier)/pos')
+      else           router.replace('/(cashier)/shift-open')
+    } catch {
+      router.replace('/(cashier)/pos')
+    }
+  }
+
   async function handlePinSubmit(pin: string) {
     if (lockoutSeconds > 0) return
     const companyId = company?.id ?? COMPANY_ID
@@ -81,6 +120,19 @@ export default function LoginScreen() {
         },
         accessToken,
       )
+
+      const canUseBio = await biometricService.isAvailable()
+      if (canUseBio && !biometricEnabled) {
+        const label = await biometricService.getSupportedTypes()
+        Alert.alert(
+          'Enable ' + label + '?',
+          'Use ' + label + ' for faster sign-in next time.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Enable', onPress: () => setBiometricEnabled(true) },
+          ],
+        )
+      }
 
       // Check for active shift
       try {
@@ -151,6 +203,16 @@ export default function LoginScreen() {
           loading={loginLoading}
           error={lockoutSeconds > 0 ? undefined : error}
         />
+
+        {biometricEnabled && biometricAvailable && (
+          <TouchableOpacity
+            style={styles.bioBtn}
+            onPress={() => void handleBiometricLogin()}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.bioBtnText}>🔐 Use {biometricLabel}</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </SafeAreaView>
   )
@@ -208,5 +270,20 @@ const styles = StyleSheet.create({
     color: '#fca5a5',
     textAlign: 'center',
     fontSize: 13,
+  },
+  bioBtn: {
+    marginTop: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    backgroundColor: '#1e293b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+  },
+  bioBtnText: {
+    color: '#a5b4fc',
+    fontSize: 15,
+    fontWeight: '600',
   },
 })

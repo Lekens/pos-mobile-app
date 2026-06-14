@@ -23,6 +23,11 @@ import { useAuthStore } from '@/store/auth.store'
 import { useUIStore } from '@/store/ui.store'
 import { transactionsService } from '@/services/transactions.service'
 import { buildWhatsAppReceipt } from '@/utils/receipt'
+import { printerService } from '@/services/printer.service'
+import { useSettingsStore } from '@/store/settings.store'
+import NetInfo from '@react-native-community/netinfo'
+import { useOfflineQueueStore } from '@/store/offline-queue.store'
+import { notificationsService } from '@/services/notifications.service'
 import type { PaymentMethod } from '@/types'
 
 interface CheckoutSheetProps {
@@ -41,6 +46,9 @@ export default function CheckoutSheet({ visible, onClose, onSuccess }: CheckoutS
   const clearCart  = useCartStore((s) => s.clearCart)
   const user       = useAuthStore((s) => s.user)
   const pushToast  = useUIStore((s) => s.pushToast)
+
+  const addToQueue           = useOfflineQueueStore((s) => s.addToQueue)
+  const notificationsEnabled = useSettingsStore((s) => s.notificationsEnabled)
 
   const [method, setMethod]         = useState<PaymentMethod>('cash')
   const [tenderedStr, setTendered]  = useState('')
@@ -132,6 +140,26 @@ export default function CheckoutSheet({ visible, onClose, onSuccess }: CheckoutS
         totalAmount:    total,
       }
 
+      const netState = await NetInfo.fetch()
+      const isOffline = !(netState.isConnected && netState.isInternetReachable !== false)
+      if (isOffline) {
+        const offlineId = crypto.randomUUID()
+        // Reuse idempotencyKeyRef.current so that if the server already received
+        // this transaction (response was lost), the sync retry is correctly deduplicated.
+        addToQueue({
+          id: offlineId,
+          payload: payload,
+          idempotencyKey: idempotencyKeyRef.current,
+          queuedAt: (new Date()).toISOString(),
+          status: 'pending',
+        })
+        pushToast('Saved offline — will sync when connected', 'info', 3000)
+        clearCart()
+        onSuccess()
+        setLoading(false)
+        return
+      }
+
       const res = await transactionsService.create(payload, idempotencyKeyRef.current)
       const invoiceId: string =
         res.data?.data?.invoiceNumber ??
@@ -139,13 +167,34 @@ export default function CheckoutSheet({ visible, onClose, onSuccess }: CheckoutS
         res.data?.data?.id ??
         'N/A'
 
-      // Capture snapshot before clearing cart
-      setSaleItems([...items])
+      // Capture snapshot values before clearing cart
+      const snapshotItems = [...items]
+      const subtotalAmount = snapshotItems.reduce((s, item) => s + item.lineTotal, 0)
+      const totalAmount = total
+      setSaleItems(snapshotItems)
       setSaleCustomer(customer)
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       setInvoiceResult(invoiceId)
       clearCart()
       pushToast(`Sale complete — ${invoiceId}`, 'success')
+
+      // Auto-print if enabled
+      const { autoPrint, pairedPrinter } = useSettingsStore.getState()
+      if (autoPrint && pairedPrinter) {
+        printerService.printReceipt({
+          invoiceId: invoiceId,
+          items: snapshotItems.map((item) => ({
+            name: item.product.name,
+            unitName: item.sellingUnitName,
+            qty: item.sellingUnitQty,
+            lineTotal: item.lineTotal,
+          })),
+          subtotal: subtotalAmount,
+          vatAmount: 0,
+          total: totalAmount,
+          paymentMethod: method.toUpperCase(),
+        }).catch(() => {}) // non-fatal
+      }
     } catch (err: unknown) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       const msg =

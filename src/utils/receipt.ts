@@ -64,6 +64,8 @@ export function buildWhatsAppReceipt(invoice: ReceiptData): string {
     return `${padded} ${price}`
   })
 
+  const deepLink = `poschoice://receipt/${invoice.invoiceId}`
+
   const summary = [
     divider,
     `${padRight('Subtotal:', 18)}${padLeft(formatNaira(invoice.subtotal), LINE_WIDTH - 18)}`,
@@ -72,7 +74,61 @@ export function buildWhatsAppReceipt(invoice: ReceiptData): string {
     '',
     `Payment: ${invoice.paymentMethod}`,
     'Thank you for your business!',
+    '',
+    '📱 View receipt in POS Choice:',
+    deepLink,
   ].join('\n')
 
   return [header, ...itemLines, summary].join('\n')
+}
+
+export interface EscposLine {
+  type: 'text' | 'bold' | 'divider' | 'column' | 'feed'
+  content?: string
+  columns?: Array<{ text: string; width: number }>
+}
+
+export function buildEscposLines(data: ReceiptData): EscposLine[] {
+  const lines: EscposLine[] = []
+
+  // Header
+  lines.push({ type: 'bold', content: data.companyName ?? 'POS Choice' })
+  lines.push({ type: 'text', content: data.invoiceId })
+  lines.push({ type: 'text', content: formatDate(data.createdAt) })
+  lines.push({ type: 'divider' })
+
+  // Items — column headers
+  lines.push({
+    type: 'column',
+    columns: [
+      { text: 'ITEM', width: 20 },
+      { text: 'QTY', width: 6 },
+      { text: 'TOTAL', width: 10 },
+    ],
+  })
+  lines.push({ type: 'divider' })
+
+  for (const item of data.items) {
+    lines.push({
+      type: 'column',
+      columns: [
+        { text: `${item.name} (${item.unitName})`, width: 20 },
+        { text: String(item.qty), width: 6 },
+        { text: formatNaira(item.lineTotal), width: 10 },
+      ],
+    })
+  }
+
+  lines.push({ type: 'divider' })
+  lines.push({ type: 'text', content: `Subtotal: ${formatNaira(data.subtotal)}` })
+  if (data.vatAmount > 0) {
+    lines.push({ type: 'text', content: `VAT: ${formatNaira(data.vatAmount)}` })
+  }
+  lines.push({ type: 'bold', content: `TOTAL: ${formatNaira(data.total)}` })
+  lines.push({ type: 'text', content: `Payment: ${data.paymentMethod}` })
+  lines.push({ type: 'divider' })
+  lines.push({ type: 'text', content: 'Thank you for your business!' })
+  lines.push({ type: 'feed' })
+
+  return lines
 }

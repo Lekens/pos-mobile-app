@@ -8,6 +8,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     pos:   '🏪',
     held:  '📌',
     stats: '📊',
+    settings: '⚙️',
   }
   return (
     <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>
@@ -72,10 +73,18 @@ export default function CashierLayout() {
           tabBarIcon: ({ focused }) => <TabIcon name="stats" focused={focused} />,
         }}
       />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ focused }) => <TabIcon name="settings" focused={focused} />,
+        }}
+      />
       {/* Hidden screens — not shown in tabs */}
       <Tabs.Screen name="scanner"    options={{ href: null }} />
       <Tabs.Screen name="shift-open" options={{ href: null }} />
       <Tabs.Screen name="shift-close" options={{ href: null }} />
+      <Tabs.Screen name="damage-report" options={{ href: null }} />
     </Tabs>
   )
 }

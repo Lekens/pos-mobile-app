@@ -6,7 +6,14 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:android": "eas build --platform android --profile preview",
+    "build:android:prod": "eas build --platform android --profile production",
+    "build:ios": "eas build --platform ios --profile preview",
+    "build:all": "eas build --platform all --profile preview",
+    "submit:android": "eas submit --platform android",
+    "update:preview": "eas update --branch preview --message",
+    "update:production": "eas update --branch production --message"
   },
   "dependencies": {
     "expo": "~52.0.0",
@@ -27,7 +34,14 @@
     "@gorhom/bottom-sheet": "^5.1.1",
     "zustand": "^5.0.0",
     "@react-native-async-storage/async-storage": "2.1.0",
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "@react-native-community/netinfo": "11.4.1",
+    "react-native-bluetooth-escpos-printer": "^2.4.3",
+    "expo-updates": "~0.26.0",
+    "expo-local-authentication": "~15.0.0",
+    "expo-notifications": "~0.29.0",
+    "expo-device": "~7.0.0",
+    "expo-image-picker": "~16.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
