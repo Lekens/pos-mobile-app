@@ -23,7 +23,8 @@
         "NSBluetoothAlwaysUsageDescription": "POS-Choice uses Bluetooth to connect to receipt printers.",
         "NSCameraUsageDescription": "POS-Choice uses the camera to photograph damaged goods for reports.",
         "NSPhotoLibraryUsageDescription": "POS-Choice accesses your photo library to attach images to damage reports.",
-        "NSFaceIDUsageDescription": "POS-Choice uses Face ID for faster cashier sign-in."
+        "NSFaceIDUsageDescription": "POS-Choice uses Face ID for faster cashier sign-in.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -33,18 +34,19 @@
       },
       "package": "ng.poschoice.app",
       "permissions": [
-        "BLUETOOTH",
-        "BLUETOOTH_ADMIN",
-        "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT",
-        "ACCESS_FINE_LOCATION",
-        "USE_BIOMETRIC",
-        "USE_FINGERPRINT",
-        "CAMERA",
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -55,7 +57,6 @@
       "expo-router",
       "expo-camera",
       "expo-secure-store",
-      "@react-native-community/netinfo",
       "expo-local-authentication",
       [
         "expo-notifications",
@@ -76,6 +77,15 @@
     },
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "e05c761d-276e-41f5-876e-4e5bef3b13ec"
+      }
+    },
+    "owner": "poschoice"
   }
 }
